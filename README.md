@@ -6,14 +6,17 @@ An automatic browser extension for X, Twitter, and Instagram. Each app has its o
 
 For Chrome, Brave, Edge, or another Chromium browser:
 
-1. Open `chrome://extensions` (in Edge, `edge://extensions`).
-2. Enable **Developer mode**.
-3. Click **Load unpacked** and select the `extension` folder beside this README.
-4. Open X or Instagram. Existing social tabs may need one refresh after installation.
+1. Download [Recenter 1.4.0](https://github.com/krishmula/recenter/releases/download/v1.4.0/recenter-1.4.0.zip) and extract the ZIP.
+2. Open `chrome://extensions` (in Edge, `edge://extensions`).
+3. Enable **Developer mode**.
+4. Click **Load unpacked** and select the extracted `recenter` folder. If you cloned this repository instead, select its `extension` folder.
+5. Open X or Instagram. Existing social tabs may need one refresh after installation.
 
 If upgrading an installed copy, click **Reload** on Recenter’s extension card, then refresh your social tabs. The old shared timer is replaced by new separate timers; upgrading from version 1.0 starts each app’s first separate session fresh.
 
 You can pin Recenter for quick access to settings, but it works without being pinned. This package is for Chromium browsers; Safari and Firefox need a separate package. If using the ZIP, extract it and load the `recenter` folder.
+
+Recenter is distributed through GitHub. It is not yet listed in the Chrome Web Store, so installation requires Developer mode.
 
 ## Timers and reminders
 
@@ -37,3 +40,7 @@ Run `bun test tests` for service-worker checks. For browser UI checks, serve thi
 For installed end-to-end verification, choose 5 minutes, open X, wait a minute, then open Instagram. Confirm each app expires independently. Use the close button on X and reopen X to confirm the immediate reminder. Refresh and restart the browser to confirm persistence.
 
 Chrome API references: [alarms](https://developer.chrome.com/docs/extensions/reference/api/alarms), [notifications](https://developer.chrome.com/docs/extensions/how-to/ui/notifications).
+
+## License
+
+Recenter is available under the [MIT License](LICENSE). You can use, modify, and redistribute it under that license.

@@ -1,8 +1,12 @@
 # Publishing Recenter
 
+## GitHub release
+
+Run `python3 release/build.py` to build both packages. `recenter-1.4.0.zip` is the manual-install download. It contains the `recenter` folder, installation instructions, and the MIT license. The store upload ZIP contains manifest.json at its root. The build verifies every archived file against its source.
+
 ## Prepared
 
-- `recenter-1.4.0-chrome-web-store.zip`: Upload this file to the Chrome Web Store. Unlike the local installation ZIP, it has manifest.json at the archive root and contains only extension assets.
+- `recenter-1.4.0-chrome-web-store.zip`: Upload this file to the Chrome Web Store. Unlike the local installation ZIP, it has manifest.json at the archive root and contains extension assets and the MIT license.
 - `store/LISTING.md`: Draft listing, single-purpose statement, permission explanations, and reviewer instructions.
 - `store/PRIVACY.md`: Local draft. Add a support contact and host it publicly before submitting.
 - `store/promo-440x280.png`: Small promotional image.
