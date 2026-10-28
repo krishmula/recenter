@@ -1,0 +1,55 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Recenter browser checks</title><link rel="stylesheet" href="../extension/popup.css"></head><body><script>
+// Local test adapter only. Not included in the extension package.
+(() => {
+const handlers = []; const changes = [];
+window.testRoots = [];
+const attachShadow = Element.prototype.attachShadow;
+Element.prototype.attachShadow = function(options) { const root = attachShadow.call(this, options); window.testRoots.push(root); return root; };
+let settings = { enabled: true, minutes: 10 };
+let sessions = { x: { startedAt: Date.now(), deadline: Date.now() + 600000, notified: false }, instagram: { startedAt: Date.now(), deadline: Date.now() + 600000, notified: false } };
+window.chrome = {
+ runtime: {
+  onMessage: { addListener: handler => handlers.push(handler) },
+  sendMessage: async message => {
+   for (const session of Object.values(sessions)) if (session && !session.notified && session.deadline <= Date.now()) Object.assign(session, { notified: true, blockedUntil: session.deadline + 10800000 });
+   if (message.type === 'settings') {
+    if (message.minutes > settings.minutes) return { error: 'Close X and Instagram before increasing the timer.' };
+    settings = { enabled: message.enabled, minutes: message.minutes };
+    for (const session of Object.values(sessions)) if (session && !session.notified) session.deadline = Math.min(session.deadline, Math.max(Date.now(), session.startedAt + settings.minutes * 60000));
+    handlers.forEach(handler => handler({ type: 'state', app: 'x', session: settings.enabled ? sessions.x : null }));
+   }
+   if (message.type === 'leave') window.closedAppTabs = true;
+   return { settings, sessions, activeApps: ['x', 'instagram'], app: 'x', session: settings.enabled ? sessions.x : null };
+  }
+ }, storage: { onChanged: { addListener: handler => changes.push(handler) } }
+};
+window.testAdapter = {
+ getSettings: () => settings,
+ pauseX: () => {
+  sessions.x = { ...sessions.x, budgetMs: 600000, remainingMs: 360000, deadline: null };
+  handlers.forEach(handler => handler({ type: 'state', app: 'x', session: null }));
+  changes.forEach(handler => handler({ sessions: { newValue: sessions }, activeApps: { newValue: ['instagram'] } }, 'local'));
+ },
+ resumeX: () => {
+  sessions.x = { ...sessions.x, deadline: Date.now() + sessions.x.remainingMs, remainingMs: null };
+  handlers.forEach(handler => handler({ type: 'state', app: 'x', session: sessions.x }));
+  changes.forEach(handler => handler({ sessions: { newValue: sessions }, activeApps: { newValue: ['x', 'instagram'] } }, 'local'));
+ },
+ expire: () => {
+  sessions.x = { startedAt: Date.now() - 600000, deadline: Date.now(), notified: true, blockedUntil: Date.now() + 10800000 };
+  handlers.forEach(handler => handler({ type: 'state', app: 'x', session: sessions.x }));
+  changes.forEach(handler => handler({ sessions: { newValue: sessions } }, 'local'));
+ },
+ publish: (app, session) => { sessions[app] = session; handlers.forEach(handler => handler({ type: 'state', app, session })); },
+ getSessions: () => sessions
+};
+(async () => {
+ const html = await (await fetch('../extension/popup.html')).text();
+ document.body.appendChild(new DOMParser().parseFromString(html, 'text/html').querySelector('main'));
+ for (const file of ['popup.js','content.js']) await new Promise((resolve,reject) => {
+  const script = document.createElement('script'); script.src = '../extension/' + file; script.onload = resolve; script.onerror = reject; document.body.appendChild(script);
+ });
+ window.ready = true;
+})();
+})();
+</script></body></html>

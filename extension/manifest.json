@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Recenter",
+  "version": "1.4.0",
+  "description": "An automatic, gentle reminder to step out of the scroll on X and Instagram.",
+  "permissions": ["storage", "alarms", "notifications"],
+  "host_permissions": ["https://*.x.com/*", "https://*.twitter.com/*", "https://*.instagram.com/*"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_popup": "popup.html", "default_title": "Recenter" },
+  "icons": { "128": "icon.png" },
+  "content_scripts": [{
+    "matches": ["https://*.x.com/*", "https://*.twitter.com/*", "https://*.instagram.com/*"],
+    "js": ["content.js"],
+    "run_at": "document_idle"
+  }]
+}
