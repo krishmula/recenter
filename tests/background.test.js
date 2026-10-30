@@ -228,3 +228,12 @@ test('closing only one tab keeps the app timer running; disabling saves unfinish
   const resumed = await h.message({ type: 'settings', minutes: 10, enabled: true });
   expect(resumed.sessions.x.deadline - resumed.sessions.x.startedAt).toBe(70 * 60000);
 });
+
+test('closing and reopening an app preserves its original wall-clock deadline', async () => {
+  const h = harness(); h.tabs.push(X); const first = await state(h);
+  h.advance(2 * 60000); h.tabs.pop(); await state(h);
+  h.advance(3 * 60000); h.reload(); h.tabs.push(X);
+  const reopened = await state(h);
+  expect(reopened.sessions.x.deadline).toBe(first.sessions.x.deadline);
+  expect(reopened.sessions.x.deadline - (first.sessions.x.startedAt + 5 * 60000)).toBe(5 * 60000);
+});
