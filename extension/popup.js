@@ -1,3 +1,4 @@
+const api = globalThis.browser ?? globalThis.chrome;
 const enabled = document.getElementById('enabled');
 const minutes = document.getElementById('minutes');
 let sessions = {};
@@ -24,7 +25,7 @@ function describe(app, session) {
   }
   const paused = session.remainingMs != null;
   const seconds = Math.max(0, Math.ceil((paused ? session.remainingMs : session.deadline - Date.now()) / 1000));
-  return `${prefix}${paused ? 'Saved · ' : ''}${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')} remaining`;
+  return `${prefix}${paused ? 'Paused · ' : ''}${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')} remaining`;
 }
 function paint() {
   document.getElementById('duration').textContent = `${minutes.value} min`;
@@ -35,7 +36,7 @@ function paint() {
 }
 async function save() {
   try {
-    const result = await chrome.runtime.sendMessage({ type: 'settings', enabled: enabled.checked, minutes: Number(minutes.value) });
+    const result = await api.runtime.sendMessage({ type: 'settings', enabled: enabled.checked, minutes: Number(minutes.value) });
     if (result.error) throw new Error(result.error);
     sessions = result.sessions;
     activeApps = result.activeApps;
@@ -52,10 +53,10 @@ async function save() {
 enabled.addEventListener('change', save);
 minutes.addEventListener('input', paint);
 minutes.addEventListener('change', save);
-chrome.runtime.sendMessage({ type: 'get-state' }).then(result => {
+api.runtime.sendMessage({ type: 'get-state' }).then(result => {
   enabled.checked = result.settings.enabled; minutes.value = result.settings.minutes; savedMinutes = result.settings.minutes; sessions = result.sessions; activeApps = result.activeApps; ready = true; updateLimit(); paint();
 }).catch(() => { document.getElementById('error').textContent = 'Could not connect to Recenter. Reload the extension.'; });
-chrome.storage.onChanged.addListener(changes => {
+api.storage.onChanged.addListener(changes => {
   if (changes.sessions) sessions = changes.sessions.newValue || {};
   if (changes.activeApps) activeApps = changes.activeApps.newValue || [];
   if (changes.settings) {

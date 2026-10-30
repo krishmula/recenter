@@ -15,12 +15,14 @@ Recenter automatically starts a timer when you open Twitter/X or Instagram. No m
 • See a live countdown on the page and in the extension panel.
 • When time is up, a prominent full-page reminder tells you it’s time to close the app. One button closes that app’s tabs.
 • Reopening within three hours brings the close reminder back immediately.
-• Close an app before time is up and your remaining time is saved. Reopen to continue the same session.
-• Shorten running timers whenever you want. While X or Instagram is open, you cannot increase the duration. Increasing it after closing both apps applies to future sessions, without extending saved sessions.
+• Close an app before time is up and its countdown keeps running. Reopening preserves the original deadline.
+• Shorten running timers whenever you want. While X or Instagram is open, you cannot increase the duration. Increasing it after closing both apps applies to future sessions, without extending existing sessions.
 
 Recenter runs locally. It does not send app activity, timer settings, or session information to the developer or third parties. It has no analytics or advertising.
 
-Timers count elapsed time while an app has tabs open, including background tabs and computer sleep. Closing all tabs for an app pauses its unfinished session. Desktop notification availability depends on browser and system settings; the on-page reminder works independently.
+Timers count continuous elapsed time after an app opens, including tab closures, browser restarts, and computer sleep. Only turning reminders off explicitly pauses unfinished timers. Turning reminders back on resumes them even with no tabs open. A timer that expires while closed keeps its three-hour window anchored to its deadline.
+
+Version 1.4.0 saved remaining time on tab closure and lost the original deadline. Version 1.5.0 converts that balance once into a deadline from the current time when reminders are enabled. It does not grant a full new allowance. Disabled saved sessions wait until reminders are enabled. Desktop notification availability depends on browser and system settings; the on-page reminder works independently.
 
 ## Suggested category
 
@@ -32,7 +34,7 @@ Help users limit scrolling on Twitter/X and Instagram through automatic per-app 
 
 ## Permission justifications
 
-- storage: Save local duration preferences, unfinished timer balances, and three-hour reminder deadlines across tab closures and browser restarts.
+- storage: Save local duration preferences, timer deadlines and explicitly paused balances, and three-hour reminder deadlines across tab closures and browser restarts.
 - alarms: Deliver deadline and reminder-window events even when the service worker is suspended.
 - notifications: Display a desktop reminder when an app’s timer expires.
 - https://*.x.com/* and https://*.twitter.com/*: Detect this app’s open tabs, deliver its on-page countdown/reminder, and close only its tabs when the user presses the close button.
@@ -45,7 +47,7 @@ The extension uses matching tab URLs locally to identify supported apps and save
 
 ## Reviewer instructions
 
-No login or payment is required to use Recenter. Install the extension, set the duration to 5 minutes, and open https://x.com or https://www.instagram.com. The countdown and reminder do not require signing into those sites. Open the other site later to verify independent timers. Close all tabs for one app before the timer finishes, then reopen to verify the saved remaining time. Let the timer finish to verify the full-page close reminder; close and reopen that app to verify the three-hour reminder. Shortening the duration below time already used should show the reminder immediately.
+No login or payment is required to use Recenter. Install the extension, set the duration to 5 minutes, and open https://x.com or https://www.instagram.com. The countdown and reminder do not require signing into those sites. Open the other site later to verify independent timers. Close all tabs for one app before the timer finishes, wait, then reopen to verify the original deadline and reduced countdown. Let the timer finish to verify the full-page close reminder; close and reopen that app to verify the three-hour reminder. Shortening the duration below time already used should show the reminder immediately.
 
 ## Submission fields still needed
 
