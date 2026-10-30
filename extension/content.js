@@ -1,4 +1,5 @@
 (() => {
+  const api = globalThis.browser ?? globalThis.chrome;
   const hostname = location.hostname;
   const app = hostname === 'instagram.com' || hostname.endsWith('.instagram.com') ? 'instagram' : 'x';
   const appName = app === 'instagram' ? 'Instagram' : 'Twitter / X';
@@ -24,7 +25,7 @@
           syncing = true;
           // Show the reminder promptly even if the background alarm is delayed.
           render({ ...session, notified: true, blockedUntil: session.deadline + 3 * 60 * 60 * 1000 });
-          chrome.runtime.sendMessage({ type: 'get-state' }).then(state => render(state.session)).catch(() => {});
+          api.runtime.sendMessage({ type: 'get-state' }).then(state => render(state.session)).catch(() => {});
         }
       }
       countdown = setInterval(tick, 1000);
@@ -48,7 +49,7 @@
       const remaining = session.blockedUntil - Date.now();
       if (remaining <= 0) {
         render(null);
-        chrome.runtime.sendMessage({ type: 'get-state' }).then(state => render(state.session)).catch(() => {});
+        api.runtime.sendMessage({ type: 'get-state' }).then(state => render(state.session)).catch(() => {});
         return;
       }
       const minutes = Math.ceil(remaining / 60000);
@@ -57,7 +58,7 @@
     tick(); countdown = setInterval(tick, 1000);
     leave.onclick = async () => {
       try {
-        const result = await chrome.runtime.sendMessage({ type: 'leave' });
+        const result = await api.runtime.sendMessage({ type: 'leave' });
         if (result?.error) throw new Error(result.error);
       } catch { root.getElementById('error').textContent = 'Close this tab manually, or reload to reconnect to Recenter.'; }
     };
@@ -66,10 +67,10 @@
     });
     leave.focus();
   }
-  chrome.runtime.onMessage.addListener(message => { if (message.type === 'state' && message.app === app) render(message.session); });
+  api.runtime.onMessage.addListener(message => { if (message.type === 'state' && message.app === app) render(message.session); });
   // Ask the worker for effective state, including whether reminders are paused.
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'local' && changes.settings) chrome.runtime.sendMessage({ type: 'get-state' }).then(state => render(state.session)).catch(() => {});
+  api.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes.settings) api.runtime.sendMessage({ type: 'get-state' }).then(state => render(state.session)).catch(() => {});
   });
-  chrome.runtime.sendMessage({ type: 'get-state' }).then(state => render(state.session)).catch(() => {});
+  api.runtime.sendMessage({ type: 'get-state' }).then(state => render(state.session)).catch(() => {});
 })();

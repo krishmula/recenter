@@ -1,3 +1,10 @@
 .DS_Store
 *.zip
 .audit/
+release/unpacked/
+release/safari-project/
+release/safari-derived-data/
+release/tooling/node_modules/
+release/build-manifest.json
+release/SHA256SUMS
+release/safari-build.log

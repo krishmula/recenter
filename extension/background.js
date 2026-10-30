@@ -1,3 +1,4 @@
+const api = globalThis.browser ?? globalThis.chrome;
 const APPS = {
   x: { name: 'Twitter / X', matches: ['https://*.x.com/*', 'https://*.twitter.com/*'] },
   instagram: { name: 'Instagram', matches: ['https://*.instagram.com/*'] }
@@ -18,27 +19,30 @@ function appFor(url) {
   } catch { return null; }
 }
 async function read() {
-  const data = await chrome.storage.local.get(['settings', 'sessions']);
+  const data = await api.storage.local.get(['settings', 'sessions']);
   return { settings: { ...DEFAULTS, ...data.settings }, sessions: data.sessions || {} };
 }
 async function reconcile() {
   const { settings, sessions } = await read();
   const allTabs = [];
   for (const [app, config] of Object.entries(APPS)) {
-    const tabs = await chrome.tabs.query({ url: config.matches });
+    const tabs = await api.tabs.query({ url: config.matches });
     allTabs.push(...tabs.map(tab => ({ ...tab, app })));
     let session = sessions[app] || null;
     // Migrate existing running sessions without resetting their allowance.
     if (session && !session.notified && session.budgetMs == null) session.budgetMs = session.deadline - session.startedAt;
     const alarm = 'recenter-' + app;
+    if (settings.enabled && session && !session.notified && session.remainingMs != null) {
+      session = { ...session, deadline: Date.now() + session.remainingMs, remainingMs: null };
+    }
     // An expired session stays stored even after its tabs close or reminders pause.
     if (session && !session.notified && (session.remainingMs === 0 || (session.remainingMs == null && session.deadline <= Date.now()))) {
       const deadline = session.remainingMs === 0 ? Date.now() : session.deadline;
       session = { ...session, deadline, remainingMs: null, notified: true, blockedUntil: deadline + COOLDOWN };
       sessions[app] = session;
-      await chrome.storage.local.set({ sessions });
+      await api.storage.local.set({ sessions });
       if (settings.enabled && tabs.length && session.blockedUntil > Date.now()) {
-        await chrome.notifications.create(alarm, {
+        await api.notifications?.create(alarm, {
           type: 'basic', iconUrl: 'icon.png', title: `Time to close ${config.name}`,
           message: 'Your scrolling time is up. Take a breath and close this app. Reopening within 3 hours brings this reminder back.',
           priority: 2, requireInteraction: true
@@ -46,38 +50,35 @@ async function reconcile() {
       }
     }
     if (session?.notified && session.blockedUntil <= Date.now()) session = null;
-    if (!settings.enabled || !tabs.length) {
-      if (session && !session.notified && session.remainingMs == null) {
-        session = { ...session, remainingMs: Math.max(0, session.deadline - Date.now()), deadline: null };
-      }
-      await chrome.notifications.clear(alarm);
-    } else if (!session) {
+    if (!settings.enabled && session && !session.notified && session.remainingMs == null) {
+      session = { ...session, remainingMs: Math.max(0, session.deadline - Date.now()), deadline: null };
+    }
+    if (!settings.enabled || !tabs.length) await api.notifications?.clear(alarm);
+    if (settings.enabled && tabs.length && !session) {
       const startedAt = Date.now();
       session = { startedAt, budgetMs: settings.minutes * 60000, deadline: startedAt + settings.minutes * 60000, remainingMs: null, notified: false };
-    } else if (!session.notified && session.remainingMs != null) {
-      session = { ...session, deadline: Date.now() + session.remainingMs, remainingMs: null };
     }
     sessions[app] = session;
-    if (session && (session.notified || session.remainingMs == null)) await chrome.alarms.create(alarm, { when: session.notified ? session.blockedUntil : session.deadline });
-    else await chrome.alarms.clear(alarm);
+    if (session && (session.notified || session.remainingMs == null)) await api.alarms.create(alarm, { when: session.notified ? session.blockedUntil : session.deadline });
+    else await api.alarms.clear(alarm);
   }
   const activeApps = [...new Set(allTabs.map(tab => tab.app))];
-  await chrome.storage.local.set({ sessions, activeApps, session: null });
+  await api.storage.local.set({ sessions, activeApps, session: null });
   const visible = settings.enabled ? Object.values(sessions).filter(session => session && (session.notified || session.remainingMs == null)) : [];
-  await chrome.action.setBadgeBackgroundColor({ color: '#346653' });
-  await chrome.action.setBadgeText({ text: visible.some(session => session.notified) ? '!' : visible.length ? 'ON' : '' });
-  await Promise.all(allTabs.map(tab => chrome.tabs.sendMessage(tab.id, {
+  await api.action.setBadgeBackgroundColor({ color: '#346653' });
+  await api.action.setBadgeText({ text: visible.some(session => session.notified) ? '!' : visible.length ? 'ON' : '' });
+  await Promise.all(allTabs.map(tab => api.tabs.sendMessage(tab.id, {
     type: 'state', app: tab.app, session: settings.enabled ? sessions[tab.app] : null
   }).catch(() => {})));
   return { settings, sessions, activeApps };
 }
-chrome.tabs.onCreated.addListener(() => enqueue(reconcile));
-chrome.tabs.onUpdated.addListener((_id, change) => { if (change.url || change.status === 'complete') enqueue(reconcile); });
-chrome.tabs.onRemoved.addListener(() => enqueue(reconcile));
-chrome.alarms.onAlarm.addListener(alarm => { if (Object.keys(APPS).some(app => alarm.name === 'recenter-' + app)) enqueue(reconcile); });
-chrome.runtime.onInstalled.addListener(() => enqueue(reconcile));
-chrome.runtime.onStartup.addListener(() => enqueue(reconcile));
-chrome.runtime.onMessage.addListener((message, sender, respond) => {
+api.tabs.onCreated.addListener(() => enqueue(reconcile));
+api.tabs.onUpdated.addListener((_id, change) => { if (change.url || change.status === 'complete') enqueue(reconcile); });
+api.tabs.onRemoved.addListener(() => enqueue(reconcile));
+api.alarms.onAlarm.addListener(alarm => { if (Object.keys(APPS).some(app => alarm.name === 'recenter-' + app)) enqueue(reconcile); });
+api.runtime.onInstalled.addListener(() => enqueue(reconcile));
+api.runtime.onStartup.addListener(() => enqueue(reconcile));
+api.runtime.onMessage.addListener((message, sender, respond) => {
   if (!['get-state', 'settings', 'leave'].includes(message.type)) return false;
   enqueue(async () => {
     if (message.type === 'settings') {
@@ -97,15 +98,15 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
             session.budgetMs = budgetMs;
           }
         }
-        await chrome.storage.local.set({ sessions: current.sessions });
+        await api.storage.local.set({ sessions: current.sessions });
       }
-      await chrome.storage.local.set({ settings: { minutes, enabled: message.enabled } });
+      await api.storage.local.set({ settings: { minutes, enabled: message.enabled } });
     }
     if (message.type === 'leave' && sender.tab) {
       const app = appFor(sender.tab.url);
       if (app) {
-        const tabs = await chrome.tabs.query({ url: APPS[app].matches });
-        if (tabs.length) await chrome.tabs.remove(tabs.map(tab => tab.id));
+        const tabs = await api.tabs.query({ url: APPS[app].matches });
+        if (tabs.length) await api.tabs.remove(tabs.map(tab => tab.id));
       }
     }
     const state = await reconcile();

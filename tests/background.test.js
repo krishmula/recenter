@@ -3,7 +3,7 @@ import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
 
 const source = readFileSync(new URL('../extension/background.js', import.meta.url), 'utf8');
-function harness() {
+function harness({ notificationsAvailable = true, browserAPI = false } = {}) {
   let now = 1_000_000;
   const data = {};
   const alarms = new Map();
@@ -28,9 +28,10 @@ function harness() {
     notifications: { create: async (id, payload) => notifications.push({ id, ...payload }), clear: async () => {} },
     runtime: { onInstalled: event('installed'), onStartup: event('startup'), onMessage: event('message') }
   };
+  if (!notificationsAvailable) delete chrome.notifications;
   function reload() {
     class Clock extends Date { static now() { return now; } }
-    vm.runInNewContext(source, { chrome, Date: Clock, console, URL });
+    vm.runInNewContext(source, { [browserAPI ? 'browser' : 'chrome']: chrome, Date: Clock, console, URL });
   }
   reload();
   const message = (payload, sender = {}) => new Promise(resolve => listeners.message(payload, sender, resolve));
@@ -95,16 +96,17 @@ test('fresh timer starts at the three-hour boundary without extending cooldown o
   expect(fresh.sessions.x.deadline - fresh.sessions.x.startedAt).toBe(600000);
 });
 
-test('closing an app pauses its unfinished timer without affecting the other app', async () => {
+test('closing an app keeps its timer and alarm without affecting the other app', async () => {
   const h = harness(); h.tabs.push(X, IG); const original = await state(h);
   h.advance(1000); h.tabs.shift();
   const closed = await state(h);
-  expect(closed.sessions.x.remainingMs).toBe(599000);
-  expect(closed.sessions.x.deadline).toBeNull();
+  expect(closed.sessions.x.remainingMs).toBeNull();
+  expect(closed.sessions.x.deadline).toBe(original.sessions.x.deadline);
+  expect(h.alarms.get('recenter-x').when).toBe(original.sessions.x.deadline);
   expect(closed.activeApps).toEqual(['instagram']);
   expect(closed.sessions.instagram.deadline).toBe(original.sessions.instagram.deadline);
   h.advance(60000);
-  h.tabs.push(X); expect((await state(h)).sessions.x.deadline).toBe(original.sessions.x.deadline + 60000);
+  h.tabs.push(X); expect((await state(h)).sessions.x.deadline).toBe(original.sessions.x.deadline);
 });
 
 test('close-app button closes all tabs for that app and preserves its three-hour reminder', async () => {
@@ -181,41 +183,95 @@ test('lowering duration preserves separate start times and updates both app dead
   expect(h.alarms.get('recenter-x').when).toBe(shorter.sessions.x.deadline);
 });
 
-test('saved unfinished time survives long breaks and worker restarts', async () => {
-  const h = harness(); h.tabs.push(X); await state(h); h.advance(4 * 60000);
-  h.tabs.pop(); h.listeners.removed(); const paused = await state(h);
-  expect(paused.sessions.x.remainingMs).toBe(6 * 60000);
-  expect(h.alarms.has('recenter-x')).toBe(false);
-  h.advance(24 * 60 * 60000); h.reload();
-  expect((await state(h)).sessions.x.remainingMs).toBe(6 * 60000);
-  h.tabs.push(X); const resumed = await state(h);
-  expect(resumed.sessions.x.deadline - (paused.sessions.x.startedAt + 4 * 60000 + 24 * 60 * 60000)).toBe(6 * 60000);
-  expect(resumed.sessions.x.notified).toBe(false);
-  h.advance(6 * 60000); expect((await state(h)).sessions.x.notified).toBe(true);
+test('running timer survives restart with no tabs and expires while closed', async () => {
+  const h = harness(); h.tabs.push(X); const first = await state(h);
+  h.advance(4 * 60000); h.tabs.pop(); await state(h); h.reload();
+  expect((await state(h)).sessions.x.deadline).toBe(first.sessions.x.deadline);
+  h.advance(7 * 60000); const expired = await state(h);
+  expect(expired.sessions.x.blockedUntil).toBe(first.sessions.x.deadline + 3 * 60 * 60000);
+  expect(h.notifications).toHaveLength(0);
+  h.tabs.push(X);
+  const reopened = await h.message({ type: 'get-state' }, { tab: X });
+  expect(reopened.session.notified).toBe(true);
+  expect(reopened.session.blockedUntil).toBe(expired.sessions.x.blockedUntil);
 });
 
-test('multiple close and reopen cycles preserve cumulative usage', async () => {
+test('long closure clears elapsed cooldown without creating a session until tabs open', async () => {
   const h = harness(); h.tabs.push(X); await state(h);
-  h.advance(2 * 60000); h.tabs.pop(); await state(h);
-  h.advance(60000); h.tabs.push(X); await state(h);
-  h.advance(3 * 60000); h.tabs.pop(); const paused = await state(h);
-  expect(paused.sessions.x.remainingMs).toBe(5 * 60000);
-  h.advance(60 * 60000); h.tabs.push(X);
-  const resumed = await state(h);
-  expect(resumed.sessions.x.deadline - resumed.sessions.x.startedAt).toBe(71 * 60000);
-  expect(resumed.sessions.x.budgetMs).toBe(10 * 60000);
+  h.tabs.pop(); await state(h); h.advance(24 * 60 * 60000); h.reload();
+  expect((await state(h)).sessions.x).toBeNull();
+  expect(h.alarms.has('recenter-x')).toBe(false);
+  expect(h.notifications).toHaveLength(0);
+  h.tabs.push(X); const fresh = await state(h);
+  expect(fresh.sessions.x.deadline - fresh.sessions.x.startedAt).toBe(600000);
+  expect(fresh.sessions.x.notified).toBe(false);
 });
 
-test('shortening a paused session subtracts time while increasing settings never extends it', async () => {
+test('reopening after a long closure starts fresh even if no closed-tab alarm ran', async () => {
+  const h = harness(); h.tabs.push(X); const first = await state(h);
+  h.tabs.pop(); await state(h); h.advance(24 * 60 * 60000); h.reload(); h.tabs.push(X);
+  const reopened = await state(h);
+  expect(reopened.sessions.x.startedAt).toBe(first.sessions.x.startedAt + 24 * 60 * 60000);
+  expect(reopened.sessions.x.deadline - reopened.sessions.x.startedAt).toBe(600000);
+  expect(h.notifications).toHaveLength(0);
+});
+
+test('shortening an explicitly paused session subtracts time and increasing never extends it', async () => {
   const h = harness(); h.tabs.push(X); await state(h); h.advance(4 * 60000);
-  h.tabs.pop(); await state(h);
-  const shorter = await h.message({ type: 'settings', minutes: 7, enabled: true });
+  await h.message({ type: 'settings', minutes: 10, enabled: false }); h.tabs.pop();
+  const shorter = await h.message({ type: 'settings', minutes: 7, enabled: false });
   expect(shorter.sessions.x.remainingMs).toBe(3 * 60000);
-  const increased = await h.message({ type: 'settings', minutes: 15, enabled: true });
+  const increased = await h.message({ type: 'settings', minutes: 15, enabled: false });
   expect(increased.sessions.x.remainingMs).toBe(3 * 60000);
-  h.advance(60000); h.tabs.push(X); const resumed = await state(h);
-  expect(resumed.sessions.x.budgetMs).toBe(7 * 60000);
-  h.advance(3 * 60000); expect((await state(h)).sessions.x.notified).toBe(true);
+  h.advance(60000);
+  const resumed = await h.message({ type: 'settings', minutes: 15, enabled: true });
+  expect(resumed.sessions.x.deadline).toBe(1_000_000 + 8 * 60000);
+  expect(resumed.sessions.x.remainingMs).toBeNull();
+  expect(resumed.sessions.instagram).toBeNull();
+  expect(h.alarms.get('recenter-x').when).toBe(resumed.sessions.x.deadline);
+  h.advance(60000); expect((await state(h)).sessions.x.deadline).toBe(resumed.sessions.x.deadline);
+  h.advance(2 * 60000); expect((await state(h)).sessions.x.notified).toBe(true);
+});
+
+test('legacy saved remaining time converts once while enabled even with no tabs', async () => {
+  const h = harness();
+  h.data.sessions = { x: { startedAt: 100, budgetMs: 600000, deadline: null, remainingMs: 120000, notified: false } };
+  const migrated = await state(h);
+  expect(migrated.sessions.x.deadline).toBe(1_120_000);
+  expect(h.data.sessions.x.remainingMs).toBeNull();
+  h.advance(60000); h.reload();
+  expect((await state(h)).sessions.x.deadline).toBe(1_120_000);
+  expect(h.data.sessions.x.budgetMs).toBe(600000);
+});
+
+test('disabled legacy saved remaining time stays paused until enabled', async () => {
+  const h = harness();
+  h.data.settings = { minutes: 10, enabled: false };
+  h.data.sessions = { x: { startedAt: 100, budgetMs: 600000, deadline: null, remainingMs: 120000, notified: false } };
+  await state(h); h.advance(60000); h.reload();
+  expect((await state(h)).sessions.x.remainingMs).toBe(120000);
+  expect(h.data.sessions.x.deadline).toBeNull();
+  expect(h.alarms.has('recenter-x')).toBe(false);
+  const resumed = await h.message({ type: 'settings', minutes: 10, enabled: true });
+  expect(resumed.sessions.x.deadline).toBe(1_180_000);
+});
+
+test('lowering duration leaves an existing cooldown unchanged', async () => {
+  const h = harness(); h.tabs.push(X); await state(h); h.advance(600000);
+  const expired = await state(h);
+  const lowered = await h.message({ type: 'settings', minutes: 5, enabled: true });
+  expect(lowered.sessions.x.deadline).toBe(expired.sessions.x.deadline);
+  expect(lowered.sessions.x.blockedUntil).toBe(expired.sessions.x.blockedUntil);
+});
+
+test('missing notifications API preserves timers and on-page reminders using browser API', async () => {
+  const h = harness({ notificationsAvailable: false, browserAPI: true });
+  h.tabs.push(X); await state(h); h.advance(600000);
+  const expired = await state(h);
+  expect(expired.sessions.x.notified).toBe(true);
+  expect(h.delivered.at(-1).session.notified).toBe(true);
+  h.tabs.pop(); await state(h);
+  expect(h.alarms.get('recenter-x').when).toBe(expired.sessions.x.blockedUntil);
 });
 
 test('closing only one tab keeps the app timer running; disabling saves unfinished time', async () => {
@@ -227,4 +283,13 @@ test('closing only one tab keeps the app timer running; disabling saves unfinish
   h.advance(60 * 60000);
   const resumed = await h.message({ type: 'settings', minutes: 10, enabled: true });
   expect(resumed.sessions.x.deadline - resumed.sessions.x.startedAt).toBe(70 * 60000);
+});
+
+test('closing and reopening an app preserves its original wall-clock deadline', async () => {
+  const h = harness(); h.tabs.push(X); const first = await state(h);
+  h.advance(2 * 60000); h.tabs.pop(); await state(h);
+  h.advance(3 * 60000); h.reload(); h.tabs.push(X);
+  const reopened = await state(h);
+  expect(reopened.sessions.x.deadline).toBe(first.sessions.x.deadline);
+  expect(reopened.sessions.x.deadline - (first.sessions.x.startedAt + 5 * 60000)).toBe(5 * 60000);
 });
